@@ -101,3 +101,394 @@ public interface PluginResponse {
 
 ##Шаг пятый
 Реализация
+
+Фасад
+```java
+public class Runner {
+
+    private Context mContext;
+    private Plugin mPlugin;
+    private WebView mWebView;
+    private Callback mCallback;
+
+    public Runner(Context context, Plugin plugin) {
+        this.mContext = context;
+        this.mPlugin = plugin;
+    }
+
+    public Callback getCallback() {
+        return mCallback;
+    }
+//Передадим окно браузера, в котором будем проводить авторизацию
+    public void setWebView(WebView webView) {
+        this.mWebView = webView;
+    }
+//
+    public void execute(final Callback callback) {
+        this.mCallback = callback;
+//Назначим нашему браузеру перехватчик переходов
+            mWebView.setWebViewClient(new WebViewClient() {
+                public boolean shouldOverrideUrlLoading(WebView view, String urlString) {
+                    if (isDebug) Log.d(ConstManager.TAG_RUNNER, urlString);
+//Проверяем содержит ли адрес перехода нужный нам параметр и запускаем выполнение 
+//обрабочика из плагина
+                        if ((urlString != null) && mPlugin.isContainsBody(urlString)) {
+                            mPlugin.proceed(urlString, callback, mIsDone);
+                        
+                    }
+//Возвращаемое в этом методе значение - указание браузеру обрабатывать ли
+//переход самостоятельно. true - обрабатывать браузером
+                    return true;
+                }
+
+            });
+//Открываем в браузере страницу авторизации
+            mWebView.loadUrl(mPlugin.getUrl());
+
+        }
+    }
+
+}
+```
+
+VkPlugin
+```java
+public class VkPlugin implements Plugin {
+
+    private final static String BASE_URL = "https://oauth.vk.com/authorize";
+    private final static String VERSION_API = "5.52";
+    private String clientId;
+    private String redirectUri;
+    private String state;
+    private List<VkScope> scopes;
+//Приватный конструктор нужен для билдера
+    private VkPlugin(String clientId, String redirectUri, String state, List<VkScope> scopes) {
+        this.clientId = clientId;
+        this.redirectUri = redirectUri;
+        this.scopes = scopes;
+        this.state = state;
+    }
+//Отбает адрес страницы авторизации для браузера
+    @Override
+    public String getUrl() {
+        String params = BASE_URL + "?" +
+                "client_id=" + clientId +
+                "&display=mobile&redirect_uri=" + redirectUri +
+                "&scope=" + getScope() + "&response_type=token&v="
+                + VERSION_API + "&state=" + state;
+        if (isDebug) Log.d(ConstManager.TAG_VK, params);
+        return params;
+    }
+//Проверка успешной авторизации по содержимому параметра
+    @Override
+    public boolean isContainsBody(String urlString) {
+        if (urlString.contains("access_token") && urlString.contains("user_id")) return true;
+        return false;
+    }
+//Обработаем ответ ВКонтакте
+    @Override
+    public PluginResponse proceed(String response, Runner.Callback callback, Runner.IsDone isDone) {
+//Разделим ответ на массив строк, содержащих по одному параметру
+        String[] partsResponse = response.split("&");
+//Извлечем токен
+        String accessToken = partsResponse[0].substring(partsResponse[0].indexOf("=") + 1);
+//Извлечем пользователя
+        String idUserVK = partsResponse[2].substring(partsResponse[2].indexOf("=") + 1);
+//Сохраним результаты в объект - результат авторизации
+        VkResponse vkResponse = new VkResponse(idUserVK, accessToken);
+//Передадим результат в вызвавший метод
+        callback.onSuccess(vkResponse);
+        return null;
+    }
+
+    private String getScope() {
+        StringBuilder stringBuilder = new StringBuilder();
+        for (VkScope scope : scopes) {
+            stringBuilder.append(",");
+            stringBuilder.append(scope.getValue());
+        }
+        return stringBuilder.toString().substring(1);
+    }
+    
+//Для удобства использования определим все допустимые значения scope
+//в виде перечисления
+
+    public enum VkScope {
+        OFFLINE("offline"),
+        FRIENDS("friends"),
+        PHOTOS("photos"),
+        AUDIO("audio"),
+        VIDEO("video"),
+        DOCS("docs"),
+        NOTES("notes"),
+        PAGES("pages"),
+        STATUS("status"),
+        WALL("wall"),
+        GROUPS("groups"),
+        MESSAGES("messages"),
+        EMAIL("email"),
+        NOTIFICATIONS("notifications"),
+        STATS("stats"),
+        MARKET("market"),
+        NOTIFY("notify");
+
+        private final String value;
+
+        VkScope(String value) {
+            this.value = value;
+        }
+
+        private String getValue() {
+            return value;
+        }
+    }
+//Билдер для сборки плагина ВК
+    public static class Builder {
+        private String clientId;
+        private String redirectUri;
+        private String state = "";
+        private List<VkScope> scopes = null;
+
+        public Builder() {
+        }
+
+        public void setClientId(String clientId) {
+            this.clientId = clientId;
+        }
+
+        public void setRedirectUri(String redirectUri) {
+            this.redirectUri = redirectUri;
+        }
+
+        public void setState(String state) {
+            if (state != null) this.state = state;
+        }
+
+        public void setScopes(List<VkScope> scopes) {
+            if (scopes != null) this.scopes = scopes;
+        }
+
+        public VkPlugin build() {
+            if (scopes == null) scopes = new ArrayList<>();
+            scopes.add(VkScope.OFFLINE);
+            VkPlugin vkPlugin = new VkPlugin(clientId, redirectUri, state, scopes);
+            return vkPlugin;
+        }
+    }
+//Реализация объекта-ответа об успешной авторизации в ВК. Простой объект ID и токен. 
+    public class VkResponse implements PluginResponse {
+        private String accessToken;
+        private String id;
+
+        public VkResponse(String id, String accessToken) {
+            this.id = id;
+            this.accessToken = accessToken;
+        }
+
+        public String getAccessToken() {
+            return accessToken;
+        }
+
+        public String getId() {
+            return id;
+        }
+    }
+}
+```
+
+GitHubPlugin
+```java
+public class GitHubPlugin implements Plugin {
+
+    private final static String BASE_URL = "https://github.com/login/oauth/authorize";
+    private final static String OAUTH_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token";
+    private String clientId;
+    private String redirectUri;
+    private String clientSecret;
+    private int timeOutPost = 5000;
+    private Runner.Callback mCallback;
+//Приватный конструктор для билдера
+    private GitHubPlugin(String clientId, String clisntSecret, String redirectUri) {
+        this.clientId = clientId;
+        this.redirectUri = redirectUri;
+        this.clientSecret = clisntSecret;
+    }
+
+    public void setTimeOut(int miliSeconds) {
+        timeOutPost = miliSeconds;
+    }
+//Возвращает адрес авторизации на GitHub для браузера
+    @Override
+    public String getUrl() {
+        String params = BASE_URL + "?" +
+                "client_id=" + clientId;
+        return params;
+    }
+//Проверяет содержит ли ответ временный код (при успешной авторизации)
+    @Override
+    public boolean isContainsBody(String urlString) {
+        if (urlString.contains("code=")) return true;
+        return false;
+    }
+//Обработаем ответ GitHub
+    @Override
+    public PluginResponse proceed(String response, Runner.Callback callback) {
+//"повысим" коллбек до поля класса
+        mCallback = callback;
+//Обращиться к сети необходимо в отдельном потоке. Сделаем это с помощью кастомного класса
+//AsyncPost - наследника AsyncTask
+        AsyncPost asyncPost = new AsyncPost();
+//Извлечем из ответа GitHub временный токен, упакуем в первый элемент массива строк и 
+//передадим на обработку в AsyncPost
+        String codePart = response.substring(response.indexOf("code=") + "code=".length());
+        String[] strings = {codePart};
+        asyncPost.execute(strings);
+
+        return null;
+    }
+
+    @Override
+    public void onFailure(String response, Runner.Callback callback) {
+        mCallback = callback;
+        callback.onFailure(response);
+    }
+//Реализация билдера для GitHubPlugin
+    public static class Builder {
+        private String clientId;
+        private String redirectUri;
+        private String clientSecret;
+
+        public Builder() {
+        }
+
+        public void setClientId(String clientId) {
+            this.clientId = clientId;
+        }
+
+        public void setRedirectUri(String redirectUri) {
+            this.redirectUri = redirectUri;
+        }
+
+        public void setClientSecret(String clientSecret) {
+            this.clientSecret = clientSecret;
+        }
+
+        public GitHubPlugin build() {
+            GitHubPlugin gitHubPlugin = new GitHubPlugin(clientId, clientSecret, redirectUri);
+            return gitHubPlugin;
+        }
+    }
+
+//Реализация ответа об успешной авторизации. Содержит только токен.
+    public class GitHubResponse implements PluginResponse {
+        private String accessToken;
+
+        public GitHubResponse(String accessToken) {
+            this.accessToken = accessToken;
+        }
+
+        public String getAccessToken() {
+            return accessToken;
+        }
+    }
+    
+//Внутренний класс для отправки POST запроса принимает массив строк, содержащий временный токен
+    private class AsyncPost extends AsyncTask<String, Void, String> {
+
+//Метод выполняемый в параллельном потоке - содержит всю работу с сетью
+        @Override
+        protected String doInBackground(String... strings) {
+//Соберем все параметры в словарь ключ/значение
+            String partCode = strings[0];
+            HashMap<String, String> postDataParams = new HashMap<>();
+            postDataParams.put("grant_type", "authorization_code");
+            postDataParams.put("client_id", clientId);
+            postDataParams.put("client_secret", clientSecret);
+            postDataParams.put("code", partCode);
+            postDataParams.put("redirect_uri", redirectUri);
+//Перехватим ошибки работы с сетью - возврат пустой строки в onPostExecute вызовем onFailure в коллбеке
+            try {
+//Откроем соединение, объявим метод запроса и другие параметры
+                HttpURLConnection httpURLConnection =
+                        (HttpURLConnection) new URL(OAUTH_ACCESS_TOKEN_URL).openConnection();
+                httpURLConnection.setRequestMethod("POST");
+                httpURLConnection.setReadTimeout(timeOutPost);
+                httpURLConnection.setConnectTimeout(timeOutPost);
+                httpURLConnection.setDoOutput(true);
+                httpURLConnection.setDoInput(true);
+//Соберем словарь параметров в одну строку и буферизованным потоком запишем в выходной поток соединения
+                OutputStream outputStream = httpURLConnection.getOutputStream();
+                BufferedWriter writer = new BufferedWriter(
+                        new OutputStreamWriter(outputStream, "UTF-8"));
+                writer.write(getPostDataString(postDataParams));
+                writer.flush();
+                writer.close();
+                outputStream.close();
+//В случае успешного ответа сервера создадим запишем входной поток в строку и завершим метод
+                if (httpURLConnection.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                    BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(
+                            httpURLConnection.getInputStream()));
+                    String inputLine;
+                    StringBuffer response = new StringBuffer();
+
+                    while ((inputLine = bufferedReader.readLine()) != null) {
+                        response.append(inputLine);
+                    }
+                    bufferedReader.close();
+
+                    return response.toString();
+
+                } else {
+                    if (isDebug) Log.d(ConstManager.TAG_GIT, "POST request not worked");
+                    return ""
+//В случае отказа сервера вернем пустую строку и в onPostExecute вызовем onFailure в коллбеке
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+                return "";
+            }
+            return "";
+        }
+//Метод выполняется после doInBackground в главном потоке
+        @Override
+        protected void onPostExecute(String response) {
+            super.onPostExecute(response);
+//В зависимости от содержимого ответа сервера либо вызовем onFailure в коллбеке или 
+//создададим объект ответа и передадим его в метод onSuccess коллбека
+            if (!response.contains("access_token=")) {
+                mCallback.onFailure("Error. response= " + response);
+                return;
+            }
+            String accessToken = response.substring(response.indexOf("access_token=") + "access_token=".length(),
+                    response.indexOf("&"));
+            GitHubResponse gitHubResponse = new GitHubResponse(accessToken);
+            mCallback.onSuccess(gitHubResponse);
+
+        }
+//Вспомогательный метод сборки всех параметров POST запроса водну строку
+        private String getPostDataString(HashMap<String, String> params) {
+            StringBuilder result = new StringBuilder();
+            boolean first = true;
+            try {
+                for (Map.Entry<String, String> entry : params.entrySet()) {
+                    if (first)
+                        first = false;
+                    else
+                        result.append("&");
+                    result.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
+                    result.append("=");
+                    result.append(URLEncoder.encode(entry.getValue(), "UTF-8"));
+                }
+            } catch (UnsupportedEncodingException e) {
+                e.printStackTrace();
+                if (isDebug) Log.d(ConstManager.TAG_GIT, "Error getPostDataString");
+            }
+            if (isDebug) Log.d(ConstManager.TAG_GIT, "getPostDataString = " + result.toString());
+            return result.toString();
+        }
+    }
+
+}
+
+```
+
