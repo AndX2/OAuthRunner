@@ -489,6 +489,78 @@ public class GitHubPlugin implements Plugin {
     }
 
 }
+```
+
+##Шаг шестой
+В принципе наш модуль соответствует и, формально, работа сделана. Однако, для совсем ленивых будующих пользователей нашего модуля, давайте сделаем параметр mWebView в Фасаде необязательным и, в случае его отсутствия при запуске метода execute() развернем своё активити с окном браузера.
+
+Добавим активити в манифест модуля
+```groovy
+<activity android:name=".ui.OAuthActivity">
+</activity>
+```
+
+Разметка активити - все пространство окно браузера
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+             android:layout_width="match_parent"
+             android:layout_height="match_parent">
+    <WebView
+        android:id="@+id/auth_web_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+</FrameLayout>
+```
+
+Добавим в начало метода execute() шашего фасада проверку существования mWebView и в случае его отсутствия запустим свою активити
+
+OAuthActivity
+```java
+public class OAuthActivity extends AppCompatActivity {
+
+    Runner mRunner;
+    private WebView mWebView;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_oauth);
+        mWebView = (WebView) findViewById(R.id.auth_web_view);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+//Очень важно стереть данные предыдущих запусков браузера поскольку и VK и GitHub записывают
+//сведения об авторизации пользователя в куки
+        clearCookies();
+
+        mRunner = Runner.getInstance();
+        mRunner.setWebView(mWebView);
+        mRunner.execute(mRunner.getCallback());
+        mRunner.setDoneCallback(new Runner.IsDone() {
+            @Override
+            public void done() {
+                onBackPressed();
+            }
+        });
+    }
+
+    @Override
+    public void onBackPressed() {
+        super.onBackPressed();
+    }
+
+    public void clearCookies() {
+        CookieManager cookieManager = CookieManager.getInstance();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.removeAllCookies(null);
+        } else {
+            cookieManager.removeAllCookie();
+        }
+    }
+}
 
 ```
 
