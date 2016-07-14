@@ -6,9 +6,8 @@ package com.github.andx2.oauthrunnerlib;
 
 public interface ConstManager {
 
-    boolean isDebug = false;
+    boolean isDebug = true;
     String TAG_VK = "VkLogTag";
     String TAG_RUNNER = "RunnerLogTag";
-    String TAG_MAIN = "MainLogTag";
     String TAG_GIT = "GitLogTag";
 }
