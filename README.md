@@ -678,5 +678,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 }
 ```
 
+Полная структура приложения
+
+Для подключения модуля к приложению в скрипт сборки добавить зависимость на него:
+```groovy
+dependencies {
+    compile project(path: ':oauthrunnerlib')
+}
+```
+
+
 Все исходники [здесь https://github.com/AndX2/OAuthRunner](https://github.com/AndX2/OAuthRunner)
 
