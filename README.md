@@ -513,7 +513,38 @@ public class GitHubPlugin implements Plugin {
 </FrameLayout>
 ```
 
-Добавим в начало метода execute() шашего фасада проверку существования mWebView и в случае его отсутствия запустим свою активити
+Добавим в начало метода execute() нашего фасада проверку существования mWebView и в случае его отсутствия запустим свой активити
+
+Runner
+```java
+public void execute(final Callback callback) {
+        this.mCallback = callback;
+        if (mWebView == null) {
+            instance = this;
+            Intent intent = new Intent(mContext, OAuthActivity.class);
+            mContext.startActivity(intent);
+        } else {
+```
+
+Добавим еще один интерфейс коллбека в фасад. В его методе void done() будем передавать событие окончания обработки сетевых запросов и, при успешном исходе, закрывать наш активити. Добавим этот коллбек в список аргументов метода proceed() интерфейса Plugin и реализующих его классов GitHubPlugin и VkPlugin. Таким образом в конце выполнения этого метода мы сможем автоматически закрывать активити.
+
+GitHubPlugin и VkPlugin
+```java
+@Override
+    public PluginResponse proceed(String response, Runner.Callback callback, Runner.IsDone isDone){}
+    ...
+    if (isDone != null) isDone.done();
+```
+
+Runner
+```java
+public interface IsDone {
+        void done();
+    }
+```
+
+
+
 
 OAuthActivity
 ```java
@@ -551,7 +582,7 @@ public class OAuthActivity extends AppCompatActivity {
     public void onBackPressed() {
         super.onBackPressed();
     }
-
+//Очистка данных браузера о предыдущих запусках
     public void clearCookies() {
         CookieManager cookieManager = CookieManager.getInstance();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -561,6 +592,91 @@ public class OAuthActivity extends AppCompatActivity {
         }
     }
 }
-
 ```
+
+##Шаг седьмой
+Модуль авторизации готов. Для демонстрации его работы хорошо бы сделать простенькое приложение из одного активити. 
+
+MainActivity
+```java
+public class MainActivity extends AppCompatActivity implements View.OnClickListener {
+
+    private Button btnCallVk, btnCallGit;
+    private EditText etClientId, etRedirectUrl, etClientSecret;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        btnCallVk = (Button) findViewById(R.id.call_vk);
+        btnCallVk.setOnClickListener(this);
+        btnCallGit = (Button) findViewById(R.id.call_git);
+        btnCallGit.setOnClickListener(this);
+        etClientId = (EditText) findViewById(R.id.et_client_id);
+        etRedirectUrl = (EditText) findViewById(R.id.et_redirect_url);
+        etClientSecret = (EditText) findViewById(R.id.et_client_secret);
+    }
+
+    @Override
+    public void onClick(View view) {
+        switch (view.getId()) {
+            case R.id.call_vk:
+                callVkAuth();
+                break;
+            case R.id.call_git:
+                callGitAuth();
+                break;
+        }
+    }
+
+    private void callGitAuth() {
+        GitHubPlugin.Builder builder = new GitHubPlugin.Builder();
+        builder.setClientId(etClientId.getText().toString());
+        builder.setClientSecret(etClientSecret.getText().toString());
+        builder.setRedirectUri(etRedirectUrl.getText().toString());
+        GitHubPlugin plugin = builder.build();
+        Runner runner = new Runner(this, plugin);
+        runner.execute(new Runner.Callback() {
+            @Override
+            public void onSuccess(PluginResponse response) {
+                GitHubPlugin.GitHubResponse gitHubResponse = (GitHubPlugin.GitHubResponse) response;
+                Toast.makeText(MainActivity.this, "Auth success. accessToken = "
+                        + gitHubResponse.getAccessToken(), Toast.LENGTH_LONG).show();
+            }
+
+            @Override
+            public void onFailure(String failureMessage) {
+                Log.d("MainLogTag", "Auth failure. Message = " + failureMessage);
+                Toast.makeText(MainActivity.this, "Error Auth with message: " + failureMessage,
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void callVkAuth() {
+        VkPlugin.Builder builder = new VkPlugin.Builder();
+        builder.setClientId(etClientId.getText().toString());
+        builder.setRedirectUri(etRedirectUrl.getText().toString());
+        VkPlugin plugin = builder.build();
+        Runner runner = new Runner(this, plugin);
+        runner.execute(new Runner.Callback() {
+            @Override
+            public void onSuccess(PluginResponse response) {
+                VkPlugin.VkResponse vkResponse = (VkPlugin.VkResponse) response;
+                Toast.makeText(MainActivity.this, "Auth success. ID = " + vkResponse.getId() +
+                        "accessToken = " + vkResponse.getAccessToken(), Toast.LENGTH_LONG).show();
+            }
+
+            @Override
+            public void onFailure(String failureMessage) {
+                Toast.makeText(MainActivity.this, "Error Auth with message: " + failureMessage,
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+
+    }
+}
+```
+
+Все исходники здесь
 
